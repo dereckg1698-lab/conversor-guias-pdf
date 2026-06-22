@@ -16,9 +16,17 @@ from google import genai
 
 load_dotenv()
 
-API_KEY = os.getenv("GEMINI_API_KEY")
-EMAIL_REMITENTE = os.getenv("EMAIL_REMITENTE")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+try:
+    # Streamlit Cloud
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+    EMAIL_REMITENTE = st.secrets["EMAIL_USER"]
+    EMAIL_PASSWORD = st.secrets["EMAIL_PASSWORD"]
+
+except Exception:
+    # Ejecución local
+    API_KEY = os.getenv("GEMINI_API_KEY")
+    EMAIL_REMITENTE = os.getenv("EMAIL_REMITENTE")
+    EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 client = genai.Client(api_key=API_KEY)
 
