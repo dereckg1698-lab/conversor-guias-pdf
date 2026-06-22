@@ -5,6 +5,7 @@ import zipfile
 import json
 import os
 import yagmail
+import time
 
 from PIL import Image
 from dotenv import load_dotenv
@@ -64,15 +65,112 @@ if imagenes:
 
     progress = st.progress(0)
 
-    for i, archivo in enumerate(imagenes):
+    import time
+
+if len(imagenes) > 5:
+    st.error(
+        "Máximo 5 imágenes por carga."
+    )
+    st.stop()
+
+for i, archivo in enumerate(imagenes):
+
+    try:
 
         imagen = Image.open(archivo)
+
+        # Reducir tamaño para ahorrar cuota
+        imagen.thumbnail((1500, 1500))
 
         respuesta = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
                 imagen,
                 """
+Extrae únicamente:
+
+1. Número de guía de remisión
+2. Fecha de emisión
+
+Devuelve SOLO este JSON:
+
+{
+  "guia": "",
+  "fecha": ""
+}
+"""
+            ]
+        )
+
+        texto = respuesta.text.strip()
+        texto = texto.replace("```json", "")
+        texto = texto.replace("```", "")
+
+        try:
+
+            data = json.loads(texto)
+
+            guia = data.get("guia", "")
+            fecha = data.get("fecha", "")
+
+        except:
+
+            guia = ""
+            fecha = ""
+
+    except Exception as e:
+
+        st.warning(
+            f"⚠️ Error procesando {archivo.name}: {str(e)}"
+        )
+
+        guia = ""
+        fecha = ""
+
+    # Si Gemini falla, generar nombre seguro
+    if not guia:
+        guia = f"ERROR_{i+1}"
+
+    pdf_nombre = f"{guia}.pdf"
+
+    pdf_path = os.path.join(
+        tempfile.gettempdir(),
+        pdf_nombre
+    )
+
+    try:
+
+        if imagen.mode != "RGB":
+            imagen = imagen.convert("RGB")
+
+        imagen.save(
+            pdf_path,
+            format="PDF"
+        )
+
+        pdf_generados.append(pdf_path)
+
+        resultados.append(
+            {
+                "Archivo": archivo.name,
+                "Guía": guia,
+                "Fecha": fecha,
+                "PDF": pdf_nombre
+            }
+        )
+
+    except Exception as e:
+
+        st.error(
+            f"No se pudo crear PDF para {archivo.name}: {str(e)}"
+        )
+
+    progress.progress((i + 1) / len(imagenes))
+
+    # Evitar exceder límite gratuito
+    if i < len(imagenes) - 1:
+        time.sleep(12)
+
 Extrae únicamente:
 
 1. Número de guía de remisión
