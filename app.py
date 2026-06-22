@@ -18,13 +18,11 @@ from google import genai
 load_dotenv()
 
 try:
-    # Streamlit Cloud
     API_KEY = st.secrets["GEMINI_API_KEY"]
     EMAIL_REMITENTE = st.secrets["EMAIL_USER"]
     EMAIL_PASSWORD = st.secrets["EMAIL_PASSWORD"]
 
 except Exception:
-    # Ejecución local
     API_KEY = os.getenv("GEMINI_API_KEY")
     EMAIL_REMITENTE = os.getenv("EMAIL_REMITENTE")
     EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
@@ -59,34 +57,29 @@ imagenes = st.file_uploader(
 
 if imagenes:
 
-    resultados = []
+    if len(imagenes) > 5:
+        st.error("Máximo 5 imágenes por carga.")
+        st.stop()
 
+    resultados = []
     pdf_generados = []
 
     progress = st.progress(0)
 
-    import time
+    for i, archivo in enumerate(imagenes):
 
-if len(imagenes) > 5:
-    st.error(
-        "Máximo 5 imágenes por carga."
-    )
-    st.stop()
+        try:
 
-for i, archivo in enumerate(imagenes):
+            imagen = Image.open(archivo)
 
-    try:
+            # Reducir tamaño para ahorrar cuota
+            imagen.thumbnail((1500, 1500))
 
-        imagen = Image.open(archivo)
-
-        # Reducir tamaño para ahorrar cuota
-        imagen.thumbnail((1500, 1500))
-
-        respuesta = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[
-                imagen,
-                """
+            respuesta = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    imagen,
+                    """
 Extrae únicamente:
 
 1. Número de guía de remisión
@@ -99,109 +92,37 @@ Devuelve SOLO este JSON:
   "fecha": ""
 }
 """
-            ]
-        )
+                ]
+            )
 
-        texto = respuesta.text.strip()
-        texto = texto.replace("```json", "")
-        texto = texto.replace("```", "")
+            texto = respuesta.text.strip()
 
-        try:
+            texto = texto.replace("```json", "")
+            texto = texto.replace("```", "")
 
-            data = json.loads(texto)
+            try:
 
-            guia = data.get("guia", "")
-            fecha = data.get("fecha", "")
+                data = json.loads(texto)
 
-        except:
+                guia = data.get("guia", "")
+                fecha = data.get("fecha", "")
+
+            except Exception:
+
+                guia = ""
+                fecha = ""
+
+        except Exception as e:
+
+            st.warning(
+                f"⚠️ Error procesando {archivo.name}: {str(e)}"
+            )
 
             guia = ""
             fecha = ""
 
-    except Exception as e:
-
-        st.warning(
-            f"⚠️ Error procesando {archivo.name}: {str(e)}"
-        )
-
-        guia = ""
-        fecha = ""
-
-    # Si Gemini falla, generar nombre seguro
-    if not guia:
-        guia = f"ERROR_{i+1}"
-
-    pdf_nombre = f"{guia}.pdf"
-
-    pdf_path = os.path.join(
-        tempfile.gettempdir(),
-        pdf_nombre
-    )
-
-    try:
-
-        if imagen.mode != "RGB":
-            imagen = imagen.convert("RGB")
-
-        imagen.save(
-            pdf_path,
-            format="PDF"
-        )
-
-        pdf_generados.append(pdf_path)
-
-        resultados.append(
-            {
-                "Archivo": archivo.name,
-                "Guía": guia,
-                "Fecha": fecha,
-                "PDF": pdf_nombre
-            }
-        )
-
-    except Exception as e:
-
-        st.error(
-            f"No se pudo crear PDF para {archivo.name}: {str(e)}"
-        )
-
-    progress.progress((i + 1) / len(imagenes))
-
-    # Evitar exceder límite gratuito
-    if i < len(imagenes) - 1:
-        time.sleep(12)
-
-Extrae únicamente:
-
-1. Número de guía de remisión
-2. Fecha de emisión
-
-Devuelve SOLO este JSON:
-
-{
-  "guia": "",
-  "fecha": ""
-}
-"""
-            ]
-        )
-
-        texto = respuesta.text.strip()
-
-        texto = texto.replace("```json", "")
-        texto = texto.replace("```", "")
-
-        try:
-
-            data = json.loads(texto)
-
-            guia = data["guia"]
-            fecha = data["fecha"]
-
-        except:
-
-            guia = "NO_DETECTADA"
-            fecha = ""
+        if not guia:
+            guia = f"ERROR_{i+1}"
 
         pdf_nombre = f"{guia}.pdf"
 
@@ -210,29 +131,47 @@ Devuelve SOLO este JSON:
             pdf_nombre
         )
 
-        if imagen.mode != "RGB":
-            imagen = imagen.convert("RGB")
+        try:
 
-        imagen.save(pdf_path)
+            if imagen.mode != "RGB":
+                imagen = imagen.convert("RGB")
 
-        pdf_generados.append(pdf_path)
+            imagen.save(
+                pdf_path,
+                format="PDF"
+            )
 
-        resultados.append(
-            {
-                "Archivo": archivo.name,
-                "Guía": guia,
-                "Fecha": fecha,
-                "PDF": pdf_nombre
-            }
-        )
+            pdf_generados.append(pdf_path)
+
+            resultados.append(
+                {
+                    "Archivo": archivo.name,
+                    "Guía": guia,
+                    "Fecha": fecha,
+                    "PDF": pdf_nombre
+                }
+            )
+
+        except Exception as e:
+
+            st.error(
+                f"No se pudo crear PDF para {archivo.name}: {str(e)}"
+            )
 
         progress.progress((i + 1) / len(imagenes))
+
+        # Espera para no superar la cuota gratuita
+        if i < len(imagenes) - 1:
+            time.sleep(12)
 
     st.success(f"{len(resultados)} archivos procesados")
 
     df = pd.DataFrame(resultados)
 
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
 
     # ==========================
     # UN SOLO PDF
@@ -301,8 +240,8 @@ Devuelve SOLO este JSON:
             try:
 
                 yag = yagmail.SMTP(
-                    EMAIL_REMITENTE,
-                    EMAIL_PASSWORD
+                    user=EMAIL_REMITENTE,
+                    password=EMAIL_PASSWORD
                 )
 
                 yag.send(
@@ -315,9 +254,11 @@ Adjunto encontrará las guías procesadas.
                 )
 
                 st.success(
-                    f"Correo enviado a {correo_destino}"
+                    f"✅ Correo enviado correctamente a {correo_destino}"
                 )
 
             except Exception as e:
 
-                st.error(str(e))
+                st.error(
+                    f"❌ Error enviando correo: {str(e)}"
+                )
